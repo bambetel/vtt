@@ -47,6 +47,12 @@ func formatTimestamp(ms int) string {
 	return fmt.Sprintf("%02d:%02d.%03d", bM, bS, bT)
 }
 
+type Cue struct {
+	begin int
+	end   int
+	text  string
+}
+
 func main() {
 	offset := 8000 // offset timestamps
 	fmt.Println("vim-go")
@@ -61,32 +67,46 @@ func main() {
 	fileScanner := bufio.NewScanner(rf)
 
 	fileScanner.Split(bufio.ScanLines)
-	i := 0
 
 	// reMST := regexp.MustCompile("^(\\d+):(\\d+)\\.?(\\d+)?")
 	reTSLine := regexp.MustCompile("^\\d+.*\\d+$")
 
 	w.WriteString("WEBVTT\n")
-	lines := make([]string, 10)
+	lines := make([]string, 0)
+	cues := make([]Cue, 0)
 	for fileScanner.Scan() {
-		lines = append(lines, strings.TrimSpace(fileScanner.Text()))
-	}
-	for i, text := range lines {
+		// sort lines and cues here
+		text := strings.TrimSpace(fileScanner.Text())
+		lines = append(lines, text)
 		if reTSLine.MatchString(text) {
 			fmt.Println("cue line: ", text)
-			// single number - extrapolate
-			begin := getMs(text)
-			if 
-			end := 
-			w.WriteString("\n" + formatTimestamp(begin+offset) + " --> " + formatTimestamp(end+offset+3000) + "\n")
-		} else {
-			// res := reMST.FindStringSubmatch(text)
-			// fmt.Println("re find: ", res)
+			sp := strings.Split(text, "-")
+			fmt.Printf("Split: %q\n", sp)
+			begin := getMs(sp[0])
+			end := -1
+			if len(sp) > 1 {
+				end = getMs(sp[1])
+			}
+			cues = append(cues, Cue{begin: begin, end: end, text: ""})
 
+		} else {
 			fmt.Println("sub line: ", text)
-			w.WriteString(text + "\n")
+			cues[len(cues)-1].text += text
 		}
-		i++
+	}
+	fmt.Println("------")
+	fmt.Println(cues)
+	fmt.Println("------")
+	for i, c := range cues {
+
+		if c.end == -1 {
+			if i < len(cues)-1 {
+				c.end = cues[i+1].begin
+			} else {
+				c.end = c.begin + 15000
+			}
+		}
+		w.WriteString("\n" + formatTimestamp(c.begin+offset) + " --> " + formatTimestamp(c.end+offset) + "\n" + c.text + "\n")
 	}
 	w.Flush()
 }
