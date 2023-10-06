@@ -67,12 +67,18 @@ func main() {
 	reTSLine := regexp.MustCompile("^\\d+.*\\d+$")
 
 	w.WriteString("WEBVTT\n")
+	lines := make([]string, 10)
 	for fileScanner.Scan() {
-		text := strings.TrimSpace(fileScanner.Text())
+		lines = append(lines, strings.TrimSpace(fileScanner.Text()))
+	}
+	for i, text := range lines {
 		if reTSLine.MatchString(text) {
 			fmt.Println("cue line: ", text)
 			// single number - extrapolate
-			w.WriteString("\n" + formatTimestamp(getMs(text)+offset) + " --> " + formatTimestamp(getMs(text)+offset+3000) + "\n")
+			begin := getMs(text)
+			if 
+			end := 
+			w.WriteString("\n" + formatTimestamp(begin+offset) + " --> " + formatTimestamp(end+offset+3000) + "\n")
 		} else {
 			// res := reMST.FindStringSubmatch(text)
 			// fmt.Println("re find: ", res)
