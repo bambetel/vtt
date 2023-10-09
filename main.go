@@ -69,20 +69,19 @@ func main() {
 	flag.BoolVar(&removeOverlap, "r", false, "Remove cue overlap if specified (ignore end time)")
 	flag.Parse()
 	args := flag.Args()
-	fmt.Printf("%q\n", args)
 	inFileName := args[0]
 	outFileName := ""
 	if len(args) > 1 {
 		outFileName = args[1]
 	}
-	fmt.Printf("IN: '%s' OUT: '%s'\n", inFileName, outFileName)
+	os.Stderr.WriteString(fmt.Sprintf("IN: '%s' OUT: '%s'\n", inFileName, outFileName))
 	if len(inFileName) < 1 {
 		// log error: no filename or read stdin
-		fmt.Println("No input filename specified")
+		fmt.Println("No input filename specified. Nothing to do.")
 		return
 	}
 	if len(outFileName) < 1 {
-		fmt.Println("No output filename specified, writing to stdout")
+		os.Stderr.WriteString("No output filename specified, writing to stdout")
 	}
 	rf, err := os.Open(inFileName)
 	defer rf.Close()
@@ -94,6 +93,7 @@ func main() {
 	fileScanner.Split(bufio.ScanLines)
 
 	// full cue from - to
+	// TODO ignore and pass VTT cue settings after timestamps?
 	reCueLine := regexp.MustCompile("^(\\d+:\\d+\\S*)\\s*-+>?\\s*(\\S*\\d+)$")
 	// just beginning time
 	reTSLine := regexp.MustCompile("^\\d+:[^\\s-]*\\d+$")
