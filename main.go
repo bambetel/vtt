@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"os"
 	"regexp"
@@ -39,12 +40,18 @@ func getMs(str string) int {
 }
 
 func formatTimestamp(ms int) string {
-	bT := ms % 1000
+	t := ms % 1000
 	ms /= 1000
-	bM := ms / 60
-	bS := ms % 60
+	h := ms / 3600
+	ms %= 3600
+	m := ms / 60
+	s := ms % 60
 
-	return fmt.Sprintf("%02d:%02d.%03d", bM, bS, bT)
+	if h > 0 {
+		return fmt.Sprintf("%02d:%02d:%02d.%03d", h, m, s, t)
+	} else {
+		return fmt.Sprintf("%02d:%02d.%03d", m, s, t)
+	}
 }
 
 type Cue struct {
@@ -54,34 +61,34 @@ type Cue struct {
 }
 
 func main() {
-	offset := 8000 // offset timestamps
-	fmt.Println("vim-go")
+	var offset int
+	var defaultCueLength int
+	var removeOverlap bool
+	flag.IntVar(&offset, "o", 0, "Offset cue timestamps by N [ms]")
+	flag.IntVar(&defaultCueLength, "l", 15000, "Max/default cue length if not specified [ms]")
+	flag.BoolVar(&removeOverlap, "r", false, "Remove cue overlap if specified (ignore end time)")
+	flag.Parse()
+	fmt.Printf("flags o=%d\n", offset)
 	rf, err := os.Open("in.txt")
 	defer rf.Close()
 	if err != nil {
 		fmt.Println(err)
 	}
-	f, err := os.Create("out.txt")
-	defer f.Close()
-	w := bufio.NewWriter(f)
 	fileScanner := bufio.NewScanner(rf)
 
 	fileScanner.Split(bufio.ScanLines)
 
-	// reMST := regexp.MustCompile("^(\\d+):(\\d+)\\.?(\\d+)?")
-	reTSLine := regexp.MustCompile("^\\d+.*\\d+$")
+	reTSLine := regexp.MustCompile("^\\d+:.*\\d+$")
 
-	w.WriteString("WEBVTT\n")
-	lines := make([]string, 0)
 	cues := make([]Cue, 0)
 	for fileScanner.Scan() {
-		// sort lines and cues here
+		// sort cues here
 		text := strings.TrimSpace(fileScanner.Text())
-		lines = append(lines, text)
+		if len(text) < 1 || (len(cues) == 0 && text == "WEBVTT") {
+			continue
+		}
 		if reTSLine.MatchString(text) {
-			fmt.Println("cue line: ", text)
 			sp := strings.Split(text, "-")
-			fmt.Printf("Split: %q\n", sp)
 			begin := getMs(sp[0])
 			end := -1
 			if len(sp) > 1 {
@@ -90,23 +97,54 @@ func main() {
 			cues = append(cues, Cue{begin: begin, end: end, text: ""})
 
 		} else {
-			fmt.Println("sub line: ", text)
-			cues[len(cues)-1].text += text
+			cues[len(cues)-1].text += text + "\n"
 		}
 	}
-	fmt.Println("------")
-	fmt.Println(cues)
-	fmt.Println("------")
-	for i, c := range cues {
+	// output
+	if len(cues) < 1 {
+		fmt.Println("No cues found in input, nothing to output.")
+		return
+	}
 
+	f, err := os.Create("out.txt")
+	defer f.Close()
+	w := bufio.NewWriter(f)
+
+	w.WriteString("WEBVTT\n\n")
+
+	for i, c := range cues {
+		if removeOverlap && i < len(cues)-1 {
+			c.end = min(c.end, cues[i+1].begin)
+		}
+		// extrapolate cue end, no overlap
 		if c.end == -1 {
 			if i < len(cues)-1 {
-				c.end = cues[i+1].begin
+				c.end = min(cues[i+1].begin, c.begin+defaultCueLength)
 			} else {
-				c.end = c.begin + 15000
+				c.end = c.begin + defaultCueLength
 			}
 		}
-		w.WriteString("\n" + formatTimestamp(c.begin+offset) + " --> " + formatTimestamp(c.end+offset) + "\n" + c.text + "\n")
+
+		w.WriteString(
+			formatTimestamp(c.begin+offset) + " --> " +
+				formatTimestamp(c.end+offset) + "\n" +
+				c.text + "\n")
 	}
 	w.Flush()
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	} else {
+		return b
+	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	} else {
+		return b
+	}
 }
