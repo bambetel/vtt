@@ -14,7 +14,7 @@ func getMs(str string) int {
 	reMST := regexp.MustCompile("^(\\d+):(\\d+)\\.?(\\d+)?")
 	res := reMST.FindStringSubmatch(str)
 	if res == nil {
-		fmt.Println("No match (1)!")
+		fmt.Println("No match (1)!", str)
 		return -1
 	}
 	m, err := strconv.Atoi(res[1])
@@ -68,7 +68,6 @@ func main() {
 	flag.IntVar(&defaultCueLength, "l", 15000, "Max/default cue length if not specified [ms]")
 	flag.BoolVar(&removeOverlap, "r", false, "Remove cue overlap if specified (ignore end time)")
 	flag.Parse()
-	fmt.Printf("flags o=%d\n", offset)
 	args := flag.Args()
 	fmt.Printf("%q\n", args)
 	inFileName := args[0]
@@ -94,7 +93,10 @@ func main() {
 
 	fileScanner.Split(bufio.ScanLines)
 
-	reTSLine := regexp.MustCompile("^\\d+:.*\\d+$")
+	// full cue from - to
+	reCueLine := regexp.MustCompile("^(\\d+:\\d+\\S*)\\s*-+>?\\s*(\\S*\\d+)$")
+	// just beginning time
+	reTSLine := regexp.MustCompile("^\\d+:[^\\s-]*\\d+$")
 
 	cues := make([]Cue, 0)
 	for fileScanner.Scan() {
@@ -103,13 +105,17 @@ func main() {
 		if len(text) < 1 || (len(cues) == 0 && text == "WEBVTT") {
 			continue
 		}
-		if reTSLine.MatchString(text) {
+		if reCueLine.MatchString(text) {
+			// fmt.Println("Cue line: ", text)
+			m := reCueLine.FindAllStringSubmatch(text, -1)[0]
+			// fmt.Printf("%q\n", m)
+			begin := getMs(m[1])
+			end := getMs(m[2])
+			cues = append(cues, Cue{begin: begin, end: end, text: ""})
+		} else if reTSLine.MatchString(text) {
 			sp := strings.Split(text, "-")
 			begin := getMs(sp[0])
 			end := -1
-			if len(sp) > 1 {
-				end = getMs(sp[1])
-			}
 			cues = append(cues, Cue{begin: begin, end: end, text: ""})
 
 		} else {
