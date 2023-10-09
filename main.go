@@ -69,7 +69,23 @@ func main() {
 	flag.BoolVar(&removeOverlap, "r", false, "Remove cue overlap if specified (ignore end time)")
 	flag.Parse()
 	fmt.Printf("flags o=%d\n", offset)
-	rf, err := os.Open("in.txt")
+	args := flag.Args()
+	fmt.Printf("%q\n", args)
+	inFileName := args[0]
+	outFileName := ""
+	if len(args) > 1 {
+		outFileName = args[1]
+	}
+	fmt.Printf("IN: '%s' OUT: '%s'\n", inFileName, outFileName)
+	if len(inFileName) < 1 {
+		// log error: no filename or read stdin
+		fmt.Println("No input filename specified")
+		return
+	}
+	if len(outFileName) < 1 {
+		fmt.Println("No output filename specified, writing to stdout")
+	}
+	rf, err := os.Open(inFileName)
 	defer rf.Close()
 	if err != nil {
 		fmt.Println(err)
@@ -105,11 +121,23 @@ func main() {
 		fmt.Println("No cues found in input, nothing to output.")
 		return
 	}
+	var w *bufio.Writer
+	if len(outFileName) > 0 {
+		f, err := os.Create(outFileName)
+		defer f.Close()
+		if err != nil {
+			fmt.Printf("Cannot open output file \"%s\" for writing.", outFileName)
+			return
+		}
+		w = bufio.NewWriter(f)
+	} else {
+		w = bufio.NewWriter(os.Stdout)
+	}
+	WriteVTT(w, cues, offset, defaultCueLength, removeOverlap)
+}
 
-	f, err := os.Create("out.txt")
-	defer f.Close()
-	w := bufio.NewWriter(f)
-
+func WriteVTT(w *bufio.Writer, cues []Cue, offset int, defaultCueLength int, removeOverlap bool) {
+	defer w.Flush()
 	w.WriteString("WEBVTT\n\n")
 
 	for i, c := range cues {
@@ -130,7 +158,6 @@ func main() {
 				formatTimestamp(c.end+offset) + "\n" +
 				c.text + "\n")
 	}
-	w.Flush()
 }
 
 func max(a, b int) int {
