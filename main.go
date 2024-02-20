@@ -10,36 +10,36 @@ import (
 	"strings"
 )
 
-func getMs(str string) int {
+// Convert timestamp string (hh:)mm:ss.ttt to milliseconds
+func getMs(str string) Timestamp {
 	reMST := regexp.MustCompile("^(\\d+):(\\d+)\\.?(\\d+)?")
 	res := reMST.FindStringSubmatch(str)
 	if res == nil {
-		fmt.Println("No match (1)!", str)
 		return -1
 	}
 	m, err := strconv.Atoi(res[1])
 	s, err2 := strconv.Atoi(res[2])
 	if err != nil || err2 != nil {
-
-		fmt.Println("Atoi error (1)!")
 		return -1
 	}
 	ms := 0
 	if len(res) > 3 {
 		if res[3] != "" {
-
 			mili, err := strconv.Atoi(res[3])
 			if err == nil {
 				ms = mili
 			} else {
-				fmt.Println("ms present but no int")
+				return -1
 			}
 		}
 	}
-	return (m*60+s)*1000 + ms
+	return Timestamp((m*60+s)*1000 + ms)
 }
 
-func formatTimestamp(ms int) string {
+type Timestamp int
+
+func (ts Timestamp) String() string {
+	ms := int64(ts)
 	t := ms % 1000
 	ms /= 1000
 	h := ms / 3600
@@ -55,45 +55,50 @@ func formatTimestamp(ms int) string {
 }
 
 type Cue struct {
-	begin int
-	end   int
+	begin Timestamp
+	end   Timestamp
 	text  string
 }
 
 func main() {
-	var offset int
-	var defaultCueLength int
 	var removeOverlap bool
-	flag.IntVar(&offset, "o", 0, "Offset cue timestamps by N [ms]")
-	flag.IntVar(&defaultCueLength, "l", 15000, "Max/default cue length if not specified [ms]")
+
 	flag.BoolVar(&removeOverlap, "r", false, "Remove cue overlap if specified (ignore end time)")
+	intOffset := flag.Int("o", 0, "Offset cue timestamps by N [ms]")
+	intDefaultCueLength := flag.Int("l", 15000, "Max/default cue length if not specified [ms]")
 	flag.Parse()
 	args := flag.Args()
-	inFileName := args[0]
-	outFileName := ""
-	if len(args) > 1 {
+
+	offset, defaultCueLength := Timestamp(*intOffset), Timestamp(*intDefaultCueLength)
+
+	var inFileName, outFileName string
+	var rf *os.File
+	switch {
+	case len(args) == 0:
+	case len(args) > 1:
+		inFileName = args[0]
 		outFileName = args[1]
+	case len(args) == 1:
+		rf = os.Stdin // TODO
+		inFileName = args[0]
+
 	}
-	os.Stderr.WriteString(fmt.Sprintf("IN: '%s' OUT: '%s'\n", inFileName, outFileName))
-	if len(inFileName) < 1 {
-		// log error: no filename or read stdin
-		fmt.Println("No input filename specified. Nothing to do.")
-		return
-	}
-	if len(outFileName) < 1 {
-		os.Stderr.WriteString("No output filename specified, writing to stdout")
-	}
+
 	rf, err := os.Open(inFileName)
 	defer rf.Close()
+
 	if err != nil {
 		fmt.Println(err)
+		return
 	}
-	fileScanner := bufio.NewScanner(rf)
 
+	fileScanner := bufio.NewScanner(rf)
 	fileScanner.Split(bufio.ScanLines)
 
 	// full cue from - to
 	// TODO ignore and pass VTT cue settings after timestamps?
+
+	// split line at `-->` (VTT) or `,` (sbv)
 	reCueLine := regexp.MustCompile("^(\\d+:\\d+\\S*)\\s*-+>?\\s*(\\S*\\d+)$")
 	// just beginning time
 	reTSLine := regexp.MustCompile("^\\d+:[^\\s-]*\\d+$")
@@ -115,7 +120,7 @@ func main() {
 		} else if reTSLine.MatchString(text) {
 			sp := strings.Split(text, "-")
 			begin := getMs(sp[0])
-			end := -1
+			end := Timestamp(-1)
 			cues = append(cues, Cue{begin: begin, end: end, text: ""})
 
 		} else {
@@ -124,7 +129,7 @@ func main() {
 	}
 	// output
 	if len(cues) < 1 {
-		fmt.Println("No cues found in input, nothing to output.")
+		fmt.Fprint(os.Stderr, "No cues found in input, nothing to output.")
 		return
 	}
 	var w *bufio.Writer
@@ -139,45 +144,44 @@ func main() {
 	} else {
 		w = bufio.NewWriter(os.Stdout)
 	}
-	WriteVTT(w, cues, offset, defaultCueLength, removeOverlap)
+
+	TransformCues(cues, offset, defaultCueLength, removeOverlap)
+	WriteVTT(w, cues)
 }
 
-func WriteVTT(w *bufio.Writer, cues []Cue, offset int, defaultCueLength int, removeOverlap bool) {
+func PrintUsage() {
+	fmt.Fprintf(os.Stderr, "Usage of %s:\n", os.Args[0])
+	flag.PrintDefaults()
+}
+
+// Modifies cues slice
+func TransformCues(cues []Cue, offset Timestamp, defaultCueLength Timestamp, removeOverlap bool) {
+	for i := range cues {
+		if removeOverlap && i < len(cues)-1 {
+			cues[i].end = min(cues[i].end, cues[i+1].begin)
+		}
+		// extrapolate cue end, no overlap
+		if cues[i].end == -1 {
+			if i < len(cues)-1 {
+				cues[i].end = min(cues[i+1].begin, cues[i].begin+defaultCueLength)
+			} else {
+				cues[i].end = cues[i].begin + defaultCueLength
+			}
+		}
+		fmt.Printf("Transform %d %s %s %s -> %s %s", i, cues[i].begin, cues[i].end, offset, cues[i].begin+offset, cues[i].end+offset)
+		cues[i].begin += offset
+		cues[i].end += offset
+	}
+	for i, _ := range cues {
+		fmt.Printf("%3d: %s --> %s %s\n", i, cues[i].begin, cues[i].end, cues[i].text)
+	}
+}
+
+func WriteVTT(w *bufio.Writer, cues []Cue) {
 	defer w.Flush()
 	w.WriteString("WEBVTT\n\n")
 
-	for i, c := range cues {
-		if removeOverlap && i < len(cues)-1 {
-			c.end = min(c.end, cues[i+1].begin)
-		}
-		// extrapolate cue end, no overlap
-		if c.end == -1 {
-			if i < len(cues)-1 {
-				c.end = min(cues[i+1].begin, c.begin+defaultCueLength)
-			} else {
-				c.end = c.begin + defaultCueLength
-			}
-		}
-
-		w.WriteString(
-			formatTimestamp(c.begin+offset) + " --> " +
-				formatTimestamp(c.end+offset) + "\n" +
-				c.text + "\n")
-	}
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	} else {
-		return b
-	}
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	} else {
-		return b
+	for _, c := range cues {
+		fmt.Fprintf(w, "%s ---> %s\n%s\n", c.begin, c.end, c.text)
 	}
 }
