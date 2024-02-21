@@ -19,19 +19,20 @@ func main() {
 
 	offset, defaultCueLength := Timestamp(*intOffset), Timestamp(*intDefaultCueLength)
 
-	var inFileName, outFileName string
+	var outFileName string
 	var rf *os.File
-	switch {
-	case len(args) == 0: // read stdin
-	case len(args) > 1:
-		inFileName = args[0]
-		outFileName = args[1]
-	case len(args) == 1:
-		rf = os.Stdin // TODO
-		inFileName = args[0]
+	var err error
+
+	if len(args) > 0 {
+		var inFileName = args[0]
+		rf, err = os.Open(inFileName)
+		if len(args) > 1 {
+			outFileName = args[1]
+		}
+	} else {
+		rf = os.Stdin
 	}
 
-	rf, err := os.Open(inFileName)
 	defer rf.Close()
 
 	if err != nil {
@@ -78,7 +79,6 @@ func readHeur(rf io.Reader) ([]Cue, error) {
 		}
 		if reIsTSLine.MatchString(text) {
 			tss := getTSs(text)
-			fmt.Printf("TSS(%d): %q\n", len(tss), tss)
 
 			if len(tss) > 2 || len(tss) == 0 {
 				return nil, fmt.Errorf("Invalid timestamp format: %s", text)
@@ -86,8 +86,11 @@ func readHeur(rf io.Reader) ([]Cue, error) {
 
 			var begin, end Timestamp = -1, -1
 			var err, err2 error
+
 			if len(tss) == 2 {
-				end, err2 = getMs(tss[1])
+				if len(tss[1]) != 0 {
+					end, err2 = getMs(tss[1])
+				}
 			}
 
 			begin, err = getMs(tss[0])
