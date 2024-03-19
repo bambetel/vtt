@@ -16,7 +16,7 @@ CLI options:
 - `-o=N` Offset all timestamps by N [ms]
 - `-r`   Remove cue overlap if specified (ignore end time and set to next cue start time)
 - `-l=N`    Set max/default cue length if not specified to N [ms], default: 15s
-
+- `-t=srt` Set output format: vtt or srt (default: vtt)
 
 ## Input data
 

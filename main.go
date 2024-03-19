@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"regexp"
 	"strings"
@@ -14,6 +15,8 @@ func main() {
 	removeOverlap := flag.Bool("r", false, "Remove cue overlap if specified (ignore end time)")
 	intOffset := flag.Int("o", 0, "Offset cue timestamps by N [ms]")
 	intDefaultCueLength := flag.Int("l", 15000, "Max/default cue length if not specified [ms]")
+	formatWrite := ""
+	flag.StringVar(&formatWrite, "t", "vtt", "Output format: vtt or srt")
 	flag.Parse()
 	args := flag.Args()
 
@@ -29,46 +32,53 @@ func main() {
 		if len(args) > 1 {
 			outFileName = args[1]
 		}
+		if err != nil {
+			log.Fatalln(err)
+		}
+		defer rf.Close()
 	} else {
 		rf = os.Stdin
 	}
 
-	defer rf.Close()
-
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
 	cues, err := readHeur(rf)
 	if err != nil {
-		panic("Heuristic file reading error")
+		log.Fatalln("Heuristic file reading error.")
 	}
-	// output
+
 	if len(cues) < 1 {
-		fmt.Fprint(os.Stderr, "No cues found in input, nothing to output.")
-		return
+		log.Fatalln("No cues found in input, nothing to output.")
 	}
+	TransformCues(cues, offset, defaultCueLength, *removeOverlap)
+
 	var w *bufio.Writer
 	if len(outFileName) > 0 {
 		f, err := os.Create(outFileName)
-		defer f.Close()
 		if err != nil {
-			fmt.Printf("Cannot open output file \"%s\" for writing.", outFileName)
+			fmt.Fprintf(os.Stderr, "Cannot open output file \"%s\" for writing.", outFileName)
 			return
 		}
+		defer f.Close()
 		w = bufio.NewWriter(f)
 	} else {
 		w = bufio.NewWriter(os.Stdout)
 	}
-	TransformCues(cues, offset, defaultCueLength, *removeOverlap)
-	WriteVTT(w, cues)
+
+	switch formatWrite {
+	case "vtt":
+		WriteVTT(w, cues)
+	case "srt":
+		WriteSRT(w, cues)
+	default:
+		log.Fatalf("Output format not implemented: %s\n", formatWrite)
+	}
 }
+
+// TODO: readers/writers for different formats
 
 func readHeur(rf io.Reader) ([]Cue, error) {
 	fileScanner := bufio.NewScanner(rf)
 	fileScanner.Split(bufio.ScanLines)
-	// TODO ignore SRT cue numbers
+	// TODO ignore SRT cue numbers?
 	reIsTSLine := regexp.MustCompile("^\\d+:\\d+")
 
 	cues := make([]Cue, 0)
@@ -127,6 +137,6 @@ func WriteSRT(w *bufio.Writer, cues []Cue) {
 	defer w.Flush()
 
 	for i, c := range cues {
-		fmt.Fprintf(w, "%d\n%s --> %s\n%s\n", i, c.begin, c.end, c.text)
+		fmt.Fprintf(w, "%d\n%s --> %s\n%s\n", i+1, c.begin, c.end, c.text)
 	}
 }
