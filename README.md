@@ -30,7 +30,6 @@ Subtitles in the following format specifying start of the caption and end in for
     Second subtitle line.
     0:12-0:20
     Third subtitle part.
-					
 
 If any end time will be ommited, the subtitle duration will be set to the begining of the next line.
 
